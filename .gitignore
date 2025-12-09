@@ -1,4 +1,24 @@
+# IDE
 .vscode
+
+# Archives
 *.tar.gz
+
+# Python
 __pycache__
+*.pyc
+*.pyo
+*.egg-info
+.pytest_cache
+.coverage
+htmlcov/
+coverage.xml
+
+# Virtual environments
+venv/
+env/
+.venv/
+.env/
+
+# Data
 siftsmall

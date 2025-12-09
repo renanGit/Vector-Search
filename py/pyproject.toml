@@ -1,0 +1,59 @@
+[tool.ruff]
+# Set line length to 120 (adjust if you prefer different)
+line-length = 120
+
+# Target Python 3.9+
+target-version = "py39"
+
+# Exclude common directories and incomplete files
+exclude = [
+    ".git",
+    ".venv",
+    "venv",
+    "__pycache__",
+    "build",
+    "dist",
+    "*.egg-info",
+    "*.ipynb",
+    "py/pq.py",  # Work in progress
+]
+
+[tool.ruff.lint]
+# Enable pycodestyle (E, W), Pyflakes (F), and isort (I)
+select = [
+    "E",   # pycodestyle errors
+    "W",   # pycodestyle warnings
+    "F",   # Pyflakes
+    "I",   # isort
+    "N",   # pep8-naming
+    "UP",  # pyupgrade
+    "B",   # flake8-bugbear
+    "C4",  # flake8-comprehensions
+]
+
+# Ignore specific rules that don't match your style
+ignore = [
+    "E501",  # Line too long (let formatter handle this)
+    "E741",  # Ambiguous variable name (l, I, O) - you use l for layer
+    "N802",  # Function name should be lowercase (you use PascalCase)
+    "N803",  # Argument name should be lowercase (you use snake_case for some)
+    "N806",  # Variable in function should be lowercase (you use uppercase for some)
+    "B019",  # Use of lru_cache on methods (intentional in your code)
+    "C408",  # Unnecessary dict/list call (stylistic choice)
+]
+
+[tool.ruff.lint.per-file-ignores]
+# Allow unused imports in __init__.py files
+"__init__.py" = ["F401"]
+# Test files can have more flexibility
+"test_*.py" = ["N802", "N803"]
+
+[tool.ruff.format]
+# Use double quotes for strings
+quote-style = "double"
+
+# Indent with 4 spaces
+indent-style = "space"
+
+# Respect magic trailing commas
+skip-magic-trailing-comma = false

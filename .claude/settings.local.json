@@ -1,0 +1,10 @@
+{
+  "permissions": {
+    "allow": [
+      "Bash(python -m unittest:*)",
+      "Bash(python test_compression.py:*)"
+    ],
+    "deny": [],
+    "ask": []
+  }
+}

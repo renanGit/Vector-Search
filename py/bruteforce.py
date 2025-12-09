@@ -1,10 +1,9 @@
 class BruteForce:
-
     def __init__(self, dataset: list):
         self.dataset = dataset
-    
+
     def L2Sqr(self, p: list, q: list):
-        return sum([(x - y)**2 for x, y in zip(p, q)])
+        return sum([(x - y) ** 2 for x, y in zip(p, q)])
 
     def RunSearch(self, queryset: list, topk: int) -> list[tuple[float, int]]:
         res = []
