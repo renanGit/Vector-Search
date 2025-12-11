@@ -104,8 +104,6 @@ def ComputeDistance(query, code):
     return total_distance
 ```
 
-**Note**: A distance table can be precomputed for batch queries (computing distances from query subvectors to all K centroids), but our implementation computes on-the-fly for simplicity.
-
 #### 4b. Symmetric Distance (Database to Database)
 
 To compute the distance between two encoded database vectors:
@@ -124,8 +122,6 @@ def ComputeSymmetricDistance(code_v, code_w):
         total_distance += dist
     return total_distance
 ```
-
-This is **centroid-to-centroid** distance, NOT decode-then-L2!
 
 ## Detailed Example
 
@@ -219,11 +215,6 @@ The quantization error depends on how well centroids represent the data:
 ```
 Quantization error = Σ min ||x_i^(m) - c_k^(m)||²
 ```
-
-**Expected behavior:**
-- M=8, K=256: 90-95% recall@10
-- M=16, K=256: 95-98% recall@10
-- M=32, K=256: 98-99% recall@10
 
 ## Integration with HNSW
 

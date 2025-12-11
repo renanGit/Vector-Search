@@ -2,8 +2,8 @@
 # Set line length to 120 (adjust if you prefer different)
 line-length = 120
 
-# Target Python 3.9+
-target-version = "py39"
+# Target Python 3.13+
+target-version = "py313"
 
 # Exclude common directories and incomplete files
 exclude = [
@@ -15,7 +15,7 @@ exclude = [
     "dist",
     "*.egg-info",
     "*.ipynb",
-    "py/pq.py",  # Work in progress
+    "py/pq.py",
 ]
 
 [tool.ruff.lint]

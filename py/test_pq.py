@@ -75,8 +75,8 @@ class TestProductQuantizer(unittest.TestCase):
         data = []
         for i in range(3):
             for _ in range(10):
-                # Add noise to create cluster around (i*10, i*10)
-                point = [i * 10.0 + random.uniform(-1, 1), i * 10.0 + random.uniform(-1, 1)]
+                # Add noise to create cluster around (i*10, i*10, i*10, i*10)
+                point = [i * 10.0 + random.uniform(-1, 1) for _ in range(self.pq.D_)]
                 data.append(point)
 
         random.seed(42)  # Reset for reproducibility
@@ -166,25 +166,6 @@ class TestProductQuantizer(unittest.TestCase):
         dist = self.pq._L2Sqr(vec, reconstructed)
         self.assertLess(dist, 5.0)  # Should be quite accurate for simple data
 
-    def test_compute_distance_table(self):
-        """Test distance table computation"""
-        # Train
-        random.seed(42)
-        data = [[random.random() for _ in range(self.D)] for _ in range(100)]
-        self.pq.TrainPQ(data)
-
-        # Compute distance table for a query
-        query = [random.random() for _ in range(self.D)]
-        dist_table = self.pq.ComputeDistanceTable(query)
-
-        # Check structure
-        self.assertEqual(len(dist_table), self.M)
-        for m in range(self.M):
-            self.assertEqual(len(dist_table[m]), self.K)
-            # All distances should be non-negative
-            for dist in dist_table[m]:
-                self.assertGreaterEqual(dist, 0.0)
-
     def test_compute_distance(self):
         """Test approximate distance computation"""
         # Train
@@ -197,63 +178,10 @@ class TestProductQuantizer(unittest.TestCase):
         code = self.pq.Encode(vec)
 
         # Compute distance from vec to itself (should be small)
-        dist = self.pq.ComputeDistance(vec, code)
+        dist = self.pq.ComputeAsymmetricDistance(vec, code)
 
         # Distance should be small (quantization error)
         self.assertLess(dist, 1.0)
-
-    def test_distance_from_table(self):
-        """Test distance computation using precomputed table"""
-        # Train
-        random.seed(42)
-        data = [[random.random() for _ in range(self.D)] for _ in range(100)]
-        self.pq.TrainPQ(data)
-
-        # Compute distance table
-        query = data[0]
-        dist_table = self.pq.ComputeDistanceTable(query)
-
-        # Encode some vectors
-        codes = [self.pq.Encode(vec) for vec in data[:10]]
-
-        # Compute distances using table
-        for code in codes:
-            dist = self.pq.DistanceFromTable(dist_table, code)
-            self.assertGreaterEqual(dist, 0.0)
-            self.assertLess(dist, float("inf"))
-
-    def test_distance_consistency(self):
-        """Test that ComputeDistance and DistanceFromTable give same result"""
-        # Train
-        random.seed(42)
-        data = [[random.random() for _ in range(self.D)] for _ in range(50)]
-        self.pq.TrainPQ(data)
-
-        query = [random.random() for _ in range(self.D)]
-        code = self.pq.Encode(data[0])
-
-        # Compute distance both ways
-        dist1 = self.pq.ComputeDistance(query, code)
-
-        dist_table = self.pq.ComputeDistanceTable(query)
-        dist2 = self.pq.DistanceFromTable(dist_table, code)
-
-        self.assertAlmostEqual(dist1, dist2)
-
-    def test_get_codebook_size(self):
-        """Test codebook size calculation"""
-        expected_size = self.M * self.K * self.pq.D_ * 4  # 4 bytes per float
-        self.assertEqual(self.pq.GetCodebookSize(), expected_size)
-
-    def test_get_encoded_size(self):
-        """Test encoded vector size calculation"""
-        # For K=256 or less, should be M bytes
-        pq_small = ProductQuantizer(M=8, K=256, D=128)
-        self.assertEqual(pq_small.GetEncodedSize(), 8)
-
-        # For K > 256, should need more bytes
-        pq_large = ProductQuantizer(M=8, K=512, D=128)
-        self.assertGreater(pq_large.GetEncodedSize(), 8)
 
     def test_set_codebooks(self):
         """Test setting codebooks directly"""
@@ -294,18 +222,6 @@ class TestProductQuantizer(unittest.TestCase):
 
         codebooks = self.pq.GetCodebooks()
         self.assertEqual(len(codebooks), self.M)
-
-    def test_compression_ratio(self):
-        """Test that PQ achieves significant compression"""
-        # Original size: D * 4 bytes
-        original_size = self.D * 4
-
-        # PQ size: M bytes (for K <= 256)
-        pq_size = self.pq.GetEncodedSize()
-
-        # Should achieve at least 2x compression
-        compression_ratio = original_size / pq_size
-        self.assertGreater(compression_ratio, 2.0)
 
     def test_quantization_accuracy(self):
         """Test that quantization maintains reasonable accuracy"""
@@ -406,10 +322,9 @@ class TestProductQuantizerIntegration(unittest.TestCase):
 
         # Query
         query = database[0]  # Query with first vector
-        dist_table = pq.ComputeDistanceTable(query)
 
-        # Compute distances to all vectors
-        distances = [(pq.DistanceFromTable(dist_table, code), i) for i, code in enumerate(codes)]
+        # Compute distances to all vectors using ComputeDistance
+        distances = [(pq.ComputeAsymmetricDistance(query, code), i) for i, code in enumerate(codes)]
         distances.sort()
 
         # Nearest should be vector 0 itself
@@ -418,6 +333,77 @@ class TestProductQuantizerIntegration(unittest.TestCase):
 
         # Distance to itself should be small
         self.assertLess(distances[0][0], 0.5)
+
+
+class TestProductQuantizerMultithreading(unittest.TestCase):
+    """Test cases for Product Quantization multithreading"""
+
+    def test_multithreaded_training(self):
+        """Test that PQ training works with multiple threads"""
+        random.seed(42)
+        data = [[random.random() for _ in range(128)] for _ in range(100)]
+
+        # Train with 4 threads
+        pq_threaded = ProductQuantizer(M=8, K=64, D=128, n_threads=4)
+        pq_threaded.TrainPQ(data)
+
+        self.assertTrue(pq_threaded.trained)
+        self.assertEqual(len(pq_threaded.codebooks), 8)
+
+    def test_single_vs_multi_thread_consistency(self):
+        """Test that single-threaded and multi-threaded give similar results"""
+        random.seed(42)
+        data = [[random.random() for _ in range(64)] for _ in range(100)]
+
+        # Train with single thread
+        random.seed(42)
+        pq_single = ProductQuantizer(M=4, K=16, D=64, n_threads=1)
+        pq_single.TrainPQ(data)
+
+        # Train with multiple threads (same seed)
+        random.seed(42)
+        pq_multi = ProductQuantizer(M=4, K=16, D=64, n_threads=4)
+        pq_multi.TrainPQ(data)
+
+        # Both should produce trained models
+        self.assertTrue(pq_single.trained)
+        self.assertTrue(pq_multi.trained)
+
+        # Encode a test vector with both
+        test_vec = data[0]
+        code_single = pq_single.Encode(test_vec)
+        code_multi = pq_multi.Encode(test_vec)
+
+        # Codes should be the same length
+        self.assertEqual(len(code_single), len(code_multi))
+
+    def test_auto_thread_detection(self):
+        """Test that n_threads=None works (auto-detection)"""
+        random.seed(42)
+        data = [[random.random() for _ in range(32)] for _ in range(50)]
+
+        pq = ProductQuantizer(M=4, K=8, D=32)  # n_threads defaults to None
+        pq.TrainPQ(data)
+
+        self.assertTrue(pq.trained)
+
+    def test_kmeans_with_threading(self):
+        """Test that k-means works correctly with threading"""
+        random.seed(42)
+        pq = ProductQuantizer(M=4, K=8, D=16, n_threads=2)
+
+        # Create clustered data with correct dimension
+        data = []
+        for i in range(3):
+            for _ in range(10):
+                point = [i * 10.0 + random.uniform(-1, 1) for _ in range(pq.D_)]
+                data.append(point)
+
+        random.seed(42)
+        centroids = pq._KMeans(data, K=3, max_iter=50)
+
+        # Should converge to 3 centroids
+        self.assertEqual(len(centroids), 3)
 
 
 if __name__ == "__main__":

@@ -120,7 +120,10 @@ class HNSWIndex:
 
     # p is a new query
     def L2Sqr(self, p: tuple, q: tuple) -> float:
-        return sum([(x - y) ** 2 for x, y in zip(p, q)])
+        total = 0.0
+        for xy in range(len(p)):
+            total += (p[xy] - q[xy]) ** 2
+        return total
 
     @lru_cache(maxsize=32768)
     def L2SqrCache(self, idx_v: int, idx_w: int) -> float:
@@ -128,7 +131,7 @@ class HNSWIndex:
 
     # q is a new query, thus we need to compute distance to encoded vector
     def PQDistance(self, q: list, idx: int) -> float:
-        return self.compression.ComputeDistance(q, self.encoded_vectors[idx])
+        return self.compression.ComputeAsymmetricDistance(q, self.encoded_vectors[idx])
 
     @lru_cache(maxsize=16384)
     def PQDistanceCache(self, idx_v: int, idx_w: int) -> float:

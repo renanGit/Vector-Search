@@ -160,6 +160,6 @@ pytest test_hnsw.py -v --cov=. --cov-report=term
 
 ## Requirements
 
-- Python 3.9+
+- Python 3.12+
 - No external dependencies for core functionality
 - Development dependencies in `requirements-dev.txt`

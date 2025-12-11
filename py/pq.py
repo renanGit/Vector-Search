@@ -1,24 +1,5 @@
-"""
-Product Quantization Implementation
-
-This module implements Product Quantization (PQ), a lossy compression technique for
-high-dimensional vectors that enables efficient similarity search with significant
-memory savings.
-
-Key concepts:
-1. Decompose vectors into M subvectors
-2. Cluster each subspace independently with K-means
-3. Encode vectors as M indices (one per subspace)
-4. Fast distance computation using precomputed lookup tables
-
-References:
-- Jégou, H., Douze, M., & Schmid, C. (2011). "Product quantization for nearest
-  neighbor search." IEEE TPAMI.
-"""
-
 import random
 from concurrent.futures import ThreadPoolExecutor
-from typing import Optional
 
 
 class ProductQuantizer:
@@ -38,6 +19,8 @@ class ProductQuantizer:
         Dimensionality of input vectors.
     seed : int, optional
         Random seed for reproducibility.
+    n_threads : int, optional
+        Threads used during training.
 
     Attributes
     ----------
@@ -48,7 +31,7 @@ class ProductQuantizer:
         Whether the codebooks have been trained.
     """
 
-    def __init__(self, M: int, K: int, D: int, seed: int = 42, n_threads: Optional[int] = None):
+    def __init__(self, M: int, K: int, D: int, seed: int = 42, n_threads: int | None = None):
         # M: number of subquantizers (how many pieces to split each vector into)
         self.M = M
         # K: number of centroids per subspace (codebook size)
@@ -75,10 +58,22 @@ class ProductQuantizer:
         self.trained = False
 
         # Random seed for reproducibility
+        self.seed = seed
         random.seed(seed)
 
+        total_threads = self.n_threads or 8
+        self._subspace_executor = ThreadPoolExecutor(max_workers=total_threads)
+
+    def __del__(self):
+        """Cleanup: shutdown the thread pools when object is destroyed."""
+        if hasattr(self, "_subspace_executor"):
+            self._subspace_executor.shutdown(wait=True)
+
     def _L2Sqr(self, p: list[float], q: list[float]) -> float:
-        return sum((x - y) ** 2 for x, y in zip(p, q))
+        total = 0.0
+        for xy in range(len(p)):
+            total += (p[xy] - q[xy]) ** 2
+        return total
 
     # Split Vectors based on M subspaces
     def _SplitVector(self, vec: list[float]) -> list[list[float]]:
@@ -101,8 +96,9 @@ class ProductQuantizer:
         if len(data) < K:
             raise ValueError(f"Need at least K={K} data points, got {len(data)}")
 
+        rng = random.Random(self.seed)
         # Choose first centroid uniformly at random
-        first_idx = random.randint(0, len(data) - 1)
+        first_idx = rng.randint(0, len(data) - 1)
         centroids = [data[first_idx][:]]
 
         # Choose remaining K-1 centroids
@@ -129,7 +125,7 @@ class ProductQuantizer:
 
             # Select with probability P(x) = D(x)² / Σ(D(x)²)
             # Use weighted random selection via cumulative distribution
-            threshold = random.uniform(0, total_dist_sq)
+            threshold = rng.uniform(0, total_dist_sq)
             selected_idx = indices[-1]  # init
             cumulative = 0.0
 
@@ -146,34 +142,6 @@ class ProductQuantizer:
 
         return centroids
 
-    def _FindNearestCentroid(self, point: list[float], centroids: list[list[float]]) -> int:
-        """Helper function to find the nearest centroid for a single point."""
-        min_dist = float("inf")
-        best_k = 0
-        for k, centroid in enumerate(centroids):
-            dist = self._L2Sqr(point, centroid)
-            if dist < min_dist:
-                min_dist = dist
-                best_k = k
-        return best_k
-
-    def _ComputeClusterMean(self, cluster_indices: list[int], data: list[list[float]], dim: int) -> list[float]:
-        """Helper function to compute the mean of a cluster."""
-        if len(cluster_indices) == 0:
-            return None
-
-        cluster_points = [data[i] for i in cluster_indices]
-        mean = [0.0] * dim
-
-        for point in cluster_points:
-            for d in range(dim):
-                mean[d] += point[d]
-
-        for d in range(dim):
-            mean[d] /= len(cluster_points)
-
-        return mean
-
     # Run K-means clustering algorithm.
     #   https://en.wikipedia.org/wiki/K-means_clustering
     # data : Training data points (subvectors).
@@ -188,48 +156,54 @@ class ProductQuantizer:
         centroids = self._KMeansPlusPlus(data, K)
         converged = False
 
-        with ThreadPoolExecutor(max_workers=self.n_threads) as executor:
-            while max_iter > 0 and not converged:
-                max_iter -= 1
+        while max_iter > 0 and not converged:
+            max_iter -= 1
 
-                # Parallelize point assignment to nearest centroid
-                assignments = list(executor.map(lambda point, c=centroids: self._FindNearestCentroid(point, c), data))
+            # Find nearest centroid for each point
+            assignments = []
+            for point in data:
+                min_dist = float("inf")
+                best_k = 0
+                for k, centroid in enumerate(centroids):
+                    dist = self._L2Sqr(point, centroid)
+                    if dist < min_dist:
+                        min_dist = dist
+                        best_k = k
+                assignments.append(best_k)
 
-                # Create clusters based on assignments
-                clusters = [[] for _ in range(K)]
-                for i, best_k in enumerate(assignments):
-                    clusters[best_k].append(i)
+            # Create clusters based on assignments
+            clusters = [[] for _ in range(K)]
+            for i, best_k in enumerate(assignments):
+                clusters[best_k].append(i)
 
-                # Parallelize centroid computation
-                # Submit cluster mean computations in parallel
-                future_to_k = {}
-                for k in range(K):
-                    if len(clusters[k]) > 0:
-                        future = executor.submit(self._ComputeClusterMean, clusters[k], data, self.D_)
-                        future_to_k[future] = k
-
-                # Collect results
-                new_centroids = [None] * K
-                for future, k in future_to_k.items():
-                    new_centroids[k] = future.result()
-
-                # Fill in empty clusters with old centroids
-                for k in range(K):
-                    if new_centroids[k] is None:
-                        new_centroids[k] = centroids[k][:]
-
-                # Check convergence: stop if ALL centroids have converged
-                # (i.e., no centroid changed significantly)
-                tmp_converged = True
-                for k in range(K):
-                    if self._L2Sqr(centroids[k], new_centroids[k]) > 1e-6:
-                        tmp_converged = False
-                        break
-
-                if tmp_converged:
-                    converged = True
+            # Compute new centroids
+            new_centroids = []
+            for k in range(K):
+                if len(clusters[k]) == 0:
+                    # Keep old centroid if cluster is empty
+                    new_centroids.append(centroids[k][:])
                 else:
-                    centroids = new_centroids
+                    # Compute mean of cluster points
+                    mean = [0.0] * self.D_
+                    for i in clusters[k]:
+                        for d in range(self.D_):
+                            mean[d] += data[i][d]
+                    for d in range(self.D_):
+                        mean[d] /= len(clusters[k])
+                    new_centroids.append(mean)
+
+            tmp_converged = True
+            for k in range(K):
+                dist_sq = self._L2Sqr(centroids[k], new_centroids[k])
+                if dist_sq > 1e-6:
+                    tmp_converged = False
+                    break
+
+            if tmp_converged:
+                converged = True
+            else:
+                centroids = new_centroids
+
         return centroids
 
     def _TrainSubspace(self, m: int, data_sample: list[list[float]]) -> list[list[float]]:
@@ -256,14 +230,12 @@ class ProductQuantizer:
             raise ValueError(f"Expected vectors of dimension {self.D}, got {len(data_sample[0])}")
 
         # Parallelize training across subspaces
-        with ThreadPoolExecutor(max_workers=self.n_threads) as executor:
-            # Submit training for each subspace in parallel
-            future_to_m = {executor.submit(self._TrainSubspace, m, data_sample): m for m in range(self.M)}
+        future_to_m = {self._subspace_executor.submit(self._TrainSubspace, m, data_sample): m for m in range(self.M)}
 
-            # Collect results
-            for future in future_to_m:
-                m = future_to_m[future]
-                self.codebooks[m] = future.result()
+        # Collect results
+        for future in future_to_m:
+            m = future_to_m[future]
+            self.codebooks[m] = future.result()
 
         self.trained = True
 
@@ -318,7 +290,7 @@ class ProductQuantizer:
     # query: Query vector of dimension D.
     # code: Encoded vector (M indices) from codebook.
     # returns: Approximate squared L2 distance.
-    def ComputeDistance(self, query: list[float], code: list[int]) -> float:
+    def ComputeAsymmetricDistance(self, query: list[float], code: list[int]) -> float:
         if not self.trained:
             raise ValueError("Product quantizer must be trained before computing distances")
 

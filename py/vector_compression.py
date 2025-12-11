@@ -26,7 +26,7 @@ class VectorCompression(ABC):
         pass
 
     @abstractmethod
-    def ComputeDistance(self, query: list[float], code: any) -> float:
+    def ComputeAsymmetricDistance(self, query: list[float], code: any) -> float:
         """
         Compute asymmetric distance from query vector to encoded vector.
 
@@ -74,12 +74,14 @@ class PQCompression(VectorCompression):
         Dimensionality of vectors
     seed : int, optional
         Random seed for reproducibility
+    n_threads : int, optional
+        Threads used during training
     """
 
-    def __init__(self, M: int, K: int, D: int, seed: int = 42):
+    def __init__(self, M: int, K: int, D: int, seed: int = 42, n_threads: int = 16):
         from pq import ProductQuantizer
 
-        self.pq = ProductQuantizer(M=M, K=K, D=D, seed=seed)
+        self.pq = ProductQuantizer(M=M, K=K, D=D, seed=seed, n_threads=n_threads)
 
     def Train(self, data: list[list[float]]) -> None:
         self.pq.TrainPQ(data)
@@ -90,8 +92,8 @@ class PQCompression(VectorCompression):
     def Decode(self, code: list[int]) -> list[float]:
         return self.pq.Decode(code)
 
-    def ComputeDistance(self, query: list[float], code: list[int]) -> float:
-        return self.pq.ComputeDistance(query, code)
+    def ComputeAsymmetricDistance(self, query: list[float], code: list[int]) -> float:
+        return self.pq.ComputeAsymmetricDistance(query, code)
 
     def ComputeSymmetricDistance(self, code_v: list[int], code_w: list[int]) -> float:
         return self.pq.ComputeSymmetricDistance(code_v, code_w)
