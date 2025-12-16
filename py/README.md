@@ -1,6 +1,6 @@
 # Python Vector Search Implementation
 
-Learning material for vector search implementations in Python (with no third-party libs, just standard libs), including HNSW (Hierarchical Navigable Small World), PQ, and brute force algorithm.
+Learning material for vector search implementations in Python (with no third-party libs, just standard libs).
 
 The python code here is by no means for performance, its to learn the algo without all the specialized libs that hide the implementation.
 
@@ -150,7 +150,8 @@ Exact nearest neighbor search (slower but 100% accurate).
 
 Run all tests:
 ```bash
-python -m unittest discover -s . -p "test_*.py" -v
+cd py
+python -m unittest discover
 ```
 
 Run with coverage:

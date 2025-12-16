@@ -6,81 +6,152 @@ from heapq import heapify, heappop, heappush, nlargest, nsmallest
 from vector_compression import VectorCompression
 
 
-# The graph index starts at zero
 class Graph:
+    """A layered graph for HNSW algo manipulation"""
+
     def __init__(self):
         self.layers = list()
 
-    # Returns number of layers present in the hierarchy
     def GetHeight(self) -> int:
+        """Returns number of layers present in the hierarchy
+
+        Returns:
+            int: Number of layers in the hierarchy"""
         return len(self.layers)
 
-    # Returns if a layer is empty, ie. no items in layer l_c
     def IsLayerEmpty(self, l_c: int) -> bool:
+        """Returns if a layer is empty, ie. no items in layer l_c
+
+        Parameters:
+            l_c (int): Layer index
+
+        Returns:
+            bool: True if layer is empty, False otherwise"""
         if l_c > self.GetHeight() - 1 or len(self.layers[l_c]) == 0:
             return True
         return False
 
-    # Returns number of nodes in layer l_c
     def LayerNodeCnt(self, l_c: int) -> int:
+        """Returns number of nodes in layer l_c
+
+        Parameters:
+            l_c (int): Layer index
+
+        Returns:
+            int: Number of nodes in the layer"""
         if self.IsLayerEmpty(l_c):
             return 0
         return len(self.layers[l_c])
 
-    # Returns number of adjacent nodes from parent node
     def LayerNodeAdjCnt(self, l_c: int, node: int) -> int:
+        """Returns number of adjacent nodes from parent node
+
+        Parameters:
+            l_c (int): Layer index
+            node (int): Node index
+
+        Returns:
+            int: Number of adjacent nodes"""
         if self.IsLayerEmpty(l_c) or node not in self.layers[l_c]:
             return 0
         return len(self.layers[l_c][node])
 
-    # Returns adjacent nodes, ie. neighbors to node
     def GetNeighbors(self, l_c: int, node: int) -> set[int]:
+        """Returns adjacent nodes, ie. neighbors to node
+
+        Parameters:
+            l_c (int): Layer index
+            node (int): Node index
+
+        Returns:
+            set[int]: Set of neighbor node indices"""
         if node not in self.layers[l_c]:
             return set()
         return self.layers[l_c][node]
 
-    # Returns all parent nodes at layer l_c
     def GetLayerNodes(self, l_c: int) -> list[int]:
+        """Returns all parent nodes at layer l_c
+
+        Parameters:
+            l_c (int): Layer index
+
+        Returns:
+            list[int]: List of all node indices in the layer"""
         return self.layers[l_c].keys()
 
-    # Fills layers with empty dict(), up till l_c
     def InitLevels(self, l_c: int) -> None:
+        """Fills layers with empty dict(), up till l_c
+
+        Parameters:
+            l_c (int): Layer index to initialize up to"""
         while l_c > self.GetHeight() - 1:
             self.layers.append(dict())
 
-    # Inits p if p doesnt exist, then add edge p to q
     def AddEdge(self, l_c: int, p: int, q: int) -> None:
+        """Inits p if p doesnt exist, then add edge p to q
+
+        Parameters:
+            l_c (int): Layer index
+            p (int): Source node index
+            q (int): Target node index"""
         if p not in self.layers[l_c]:
             self.layers[l_c][p] = set()
         self.layers[l_c][p].add(q)
 
-    # Print dict at level l_c
     def PrintLayer(self, l_c: int) -> None:
+        """Print dict at level l_c
+
+        Parameters:
+            l_c (int): Layer index"""
         print(self.layers[l_c])
 
-    # Remove nei from parent node
     def RemoveEdge(self, l_c: int, node: int, nei: int) -> None:
+        """Remove nei from parent node
+
+        Parameters:
+            l_c (int): Layer index
+            node (int): Parent node index
+            nei (int): Neighbor node index to remove"""
         if node not in self.layers[l_c] or nei not in self.layers[l_c][node]:
             return
         self.layers[l_c][node].remove(nei)
 
 
-# Container class for easy dist function calls
 class Item:
+    """An Item container class for representing inserted items in HNSW.
+
+    Parameters:
+        dist_fn: a distance function used during insert and search
+        q (list): only populated in search
+        idx_q (int, default -1): only populated in insert"""
+
     def __init__(self, dist_fn, q: list, idx_q: int = -1):
         self.q = q
         self.idx_q = idx_q
         # Use cache version if both idx_q and previous add node in vectors are present
         self.dist_fn = dist_fn
 
-    # Call dist_fn, depending on cache version it will use idx_q instead of q
     def DistToNode(self, node: int) -> float:
+        """Call dist_fn, depending on cache version it will use idx_q instead of q
+
+        Parameters:
+            node (int): Node index
+
+        Returns:
+            float: Distance to the node"""
         if self.idx_q < 0:
             return self.dist_fn(self.q, node)
         return self.dist_fn(self.idx_q, node)
 
 
 class HNSWIndex:
+    """Implementation for Hierarchical Navigable Small World graphs (HNSW).
+
+    Parameters:
+        M (int): number of established connections
+        ef_construction (int): size of the dynamic candidate list for graph build
+        compression: abstracted compression class for vector compression and search computation"""
+
     def __init__(self, M: int, ef_construction: int, compression: VectorCompression = None):
         # M: number of established connections
         self.M = M
@@ -105,7 +176,6 @@ class HNSWIndex:
 
         # Storage for vectors (original or compressed)
         self.vectors = list()
-        self.encoded_vectors = list()
 
         # Compression configuration
         self.compression = compression
@@ -118,8 +188,15 @@ class HNSWIndex:
             self.dist_to_node = lambda q, idx: self.L2Sqr(q, self.vectors[idx])
             self.dist_to_node_cache = lambda idx_v, idx_w: self.L2SqrCache(idx_v, idx_w)
 
-    # p is a new query
     def L2Sqr(self, p: tuple, q: tuple) -> float:
+        """Squared Euclidean distance.
+
+        Parameters:
+            p (tuple): First vector
+            q (tuple): Second vector
+
+        Returns:
+            float: Squared L2 distance between p and q"""
         total = 0.0
         for xy in range(len(p)):
             total += (p[xy] - q[xy]) ** 2
@@ -127,23 +204,50 @@ class HNSWIndex:
 
     @lru_cache(maxsize=32768)
     def L2SqrCache(self, idx_v: int, idx_w: int) -> float:
+        """Squared Euclidean distance. Reuse computed distance from cache if called before.
+
+        Parameters:
+            idx_v (int): index to vector v
+            idx_w (int): index to vector w
+
+        Returns:
+            float: Squared L2 distance between vectors v an w"""
         return self.L2Sqr(self.vectors[idx_v], self.vectors[idx_w])
 
-    # q is a new query, thus we need to compute distance to encoded vector
     def PQDistance(self, q: list, idx: int) -> float:
-        return self.compression.ComputeAsymmetricDistance(q, self.encoded_vectors[idx])
+        """Asymmetric distance compare. q is a new query, which needs to be encoded for distance compare.
+
+        Parameters:
+            q (list): Query vector
+            idx (int): Index of encoded vector
+
+        Returns:
+            float: Distance between query and encoded vector"""
+        return self.compression.ComputeAsymmetricDistance(q, self.vectors[idx])
 
     @lru_cache(maxsize=16384)
     def PQDistanceCache(self, idx_v: int, idx_w: int) -> float:
-        return self.compression.ComputeSymmetricDistance(self.encoded_vectors[idx_v], self.encoded_vectors[idx_w])
+        """Symmetric distance compare. Reuse computed distance from cache if called before.
 
-    # Searches nearest neighbor to query
-    # q: query item
-    # ep: entry point
-    # ef: number of nearest to q elements to return
-    # l_c: layer number
-    # return W, nearest neighbors to q
+        Parameters:
+            idx_v (int): index to vector v
+            idx_w (int): index to vector w
+
+        Returns:
+            float: Distance between encoded vectors v and w"""
+        return self.compression.ComputeSymmetricDistance(self.vectors[idx_v], self.vectors[idx_w])
+
     def SearchLayer(self, q: Item, ep: int, ef: int = 1, l_c: int = 0) -> list[tuple[float, int]]:
+        """Searches nearest neighbor to query
+
+        Parameters:
+            q (Item): query item
+            ep (int): entry point
+            ef (int): number of nearest to q elements to return
+            l_c (int): layer number
+
+        Returns:
+            list[tuple[float, int]]: W, nearest neighbors to q"""
         ep_dist = q.DistToNode(ep)
         v = {ep}  # set of visited elements
         C = [(ep_dist, ep)]  # set of candidates
@@ -172,11 +276,16 @@ class HNSWIndex:
                         W = nsmallest(ef, W, key=lambda w: w[0])
         return W
 
-    # Select neighbors for updating the edges Clustered neighbors
-    # C: candidates with precomputed distances to q
-    # M: max connections to consider
-    # return R, clustered candidates
     def SelectNeighbors(self, C: list[tuple[float, int]], M: int, use_simple: bool = False) -> list[tuple[float, int]]:
+        """Select neighbors for updating the edges Clustered neighbors
+
+        Parameters:
+            C (list[tuple[float, int]]): candidates with precomputed distances to q
+            M (int): max connections to consider
+            use_simple (bool): Whether to use simple selection
+
+        Returns:
+            list[tuple[float, int]]: R, clustered candidates"""
         dist_to_node = self.dist_to_node_cache
 
         # SELECT-NEIGHBORS-SIMPLE
@@ -210,11 +319,13 @@ class HNSWIndex:
 
         return nsmallest(M, R, key=lambda r: r[0])
 
-    # Updates connections for nei to new_neighbors
-    # l_c: level to update
-    # nei: node index for add/remove edges
-    # new_neighbors: new edges for nei
-    def UpdateConnection(self, l_c: int, nei: int, new_neighbors: list[tuple[float, int]]):
+    def UpdateConnection(self, l_c: int, nei: int, new_neighbors: list[tuple[float, int]]) -> None:
+        """Updates connections for nei to new_neighbors
+
+        Parameters:
+            l_c (int): level to update
+            nei (int): node index for add/remove edges
+            new_neighbors (list[tuple[float, int]]): new edges for nei"""
         # remove all connections from nei to nodeX, where nodeX is previous edge
         # there are better connections from nei to new_neighbors
         for node in self.graph.GetLayerNodes(l_c):
@@ -223,17 +334,18 @@ class HNSWIndex:
             self.graph.AddEdge(l_c, nei, new_nei)
         return
 
-    # Insert a vector into the graph
-    # q: new element
     def Insert(self, q: list) -> None:
+        """Insert a vector into the graph
+
+        Parameters:
+            q (list): new element"""
         # idx_q represents index of q
         # If using compression, encode and store code
+        idx_q = len(self.vectors)
         if self.use_compression:
-            idx_q = len(self.encoded_vectors)
-            self.encoded_vectors.append(self.compression.Encode(q))
-        else:
-            idx_q = len(self.vectors)
-            self.vectors.append(q)
+            q = self.compression.Encode(q)
+
+        self.vectors.append(q)
 
         W = list()  # list for the currently found nearest elements
         ep = self.ep  # get entry point for hnsw
@@ -279,12 +391,16 @@ class HNSWIndex:
             self.ep = idx_q  # set entry point for hnsw to q
         return
 
-    # Search function for a query
-    # q: the vector to search for
-    # topK: amount of results to return
-    # ef_search: number of candidates to consider, defaults to 200 if 0
-    # returns topk closest points to q ([(distance1, index1), ...])
     def KNNSearch(self, q: list, topK: int, ef_search: int = 0) -> list[tuple[float, int]]:
+        """Search function for a query
+
+        Parameters:
+            q (list): the vector to search for
+            topK (int): amount of results to return
+            ef_search (int): number of candidates to consider, defaults to 200 if 0
+
+        Returns:
+            list[tuple[float, int]]: topk closest points to q ([(distance1, index1), ...])"""
         L = self.graph.GetHeight() - 1
         ep = self.ep
         ef = self.ef_search if ef_search <= 0 else ef_search

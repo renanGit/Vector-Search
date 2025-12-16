@@ -41,9 +41,7 @@ class TestHNSWWithCompression(unittest.TestCase):
 
         # Verify compression during insertion
         self.assertTrue(index.use_compression)
-        self.assertEqual(len(index.encoded_vectors), num_vectors)
-        # When using compression, we don't store original vectors
-        self.assertEqual(len(index.vectors), 0)
+        self.assertEqual(len(index.vectors), num_vectors)
 
         # Search should work
         query = [random.random() for _ in range(self.D)]
@@ -67,7 +65,6 @@ class TestHNSWWithCompression(unittest.TestCase):
 
         # Verify no compression
         self.assertFalse(index.use_compression)
-        self.assertEqual(len(index.encoded_vectors), 0)
         self.assertEqual(len(index.vectors), num_vectors)
 
         # Search should work
@@ -125,7 +122,7 @@ class TestHNSWWithCompression(unittest.TestCase):
 
         # Verify compression is active
         self.assertTrue(index.use_compression)
-        self.assertEqual(len(index.encoded_vectors), 10)
+        self.assertEqual(len(index.vectors), 10)
 
         # Search should work
         query = [random.random() for _ in range(self.D)]
@@ -153,7 +150,7 @@ class TestHNSWCompressionEdgeCases(unittest.TestCase):
         index.Insert(vec)
 
         # Should have one compressed vector
-        self.assertEqual(len(index.encoded_vectors), 1)
+        self.assertEqual(len(index.vectors), 1)
 
         # Search should return the single vector
         query = [random.random() for _ in range(D)]
@@ -176,7 +173,7 @@ class TestHNSWCompressionEdgeCases(unittest.TestCase):
         for _ in range(5):
             index.Insert(same_vec)
 
-        self.assertEqual(len(index.encoded_vectors), 5)
+        self.assertEqual(len(index.vectors), 5)
 
         # Search for the same vector
         results = index.KNNSearch(same_vec, topK=3)
@@ -204,7 +201,7 @@ class TestHNSWCompressionEdgeCases(unittest.TestCase):
             vec = [random.random() for _ in range(D)]
             index.Insert(vec)
 
-        self.assertEqual(len(index.encoded_vectors), num_vectors)
+        self.assertEqual(len(index.vectors), num_vectors)
 
         # Search should work
         query = [random.random() for _ in range(D)]
@@ -245,7 +242,7 @@ class TestCompressionIntegration(unittest.TestCase):
 
         # Both should have same number of items (stored differently)
         self.assertEqual(len(index_no_comp.vectors), num_vectors)
-        self.assertEqual(len(index_with_comp.encoded_vectors), num_vectors)
+        self.assertEqual(len(index_with_comp.vectors), num_vectors)
 
         # Both should return results
         query = [random.random() for _ in range(D)]
@@ -273,12 +270,11 @@ class TestCompressionIntegration(unittest.TestCase):
             index.Insert(vec)
 
         # Verify memory efficiency: no full vectors stored
-        self.assertEqual(len(index.vectors), 0)
-        self.assertEqual(len(index.encoded_vectors), num_vectors)
+        self.assertEqual(len(index.vectors), num_vectors)
 
         # Each encoded vector should be much smaller than original
         # M subspaces, each encoded as 1 byte (0-255 for K<=256)
-        for code in index.encoded_vectors:
+        for code in index.vectors:
             self.assertEqual(len(code), pq_compression.pq.M)
             for subcode in code:
                 self.assertGreaterEqual(subcode, 0)

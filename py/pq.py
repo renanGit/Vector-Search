@@ -10,26 +10,11 @@ class ProductQuantizer:
     quantizes each subspace independently using a codebook of K centroids.
 
     Parameters
-    ----------
-    M : int
-        Number of subquantizers (subspaces). D must be divisible by M.
-    K : int
-        Number of centroids per subspace (codebook size). Typically 256.
-    D : int
-        Dimensionality of input vectors.
-    seed : int, optional
-        Random seed for reproducibility.
-    n_threads : int, optional
-        Threads used during training.
-
-    Attributes
-    ----------
-    codebooks : list[list[list[float]]]
-        M codebooks, each containing K centroids of dimension D'.
-        codebooks[m][k] is the k-th centroid in subspace m.
-    trained : bool
-        Whether the codebooks have been trained.
-    """
+        M (int): Number of subquantizers (subspaces). D must be divisible by M.
+        K (int): Number of centroids per subspace (codebook size). Typically 256.
+        D (int): Dimensionality of input vectors.
+        seed (int, optional): Random seed for reproducibility.
+        n_threads (int, optional): Threads used during training."""
 
     def __init__(self, M: int, K: int, D: int, seed: int = 42, n_threads: int | None = None):
         # M: number of subquantizers (how many pieces to split each vector into)
@@ -75,8 +60,14 @@ class ProductQuantizer:
             total += (p[xy] - q[xy]) ** 2
         return total
 
-    # Split Vectors based on M subspaces
     def _SplitVector(self, vec: list[float]) -> list[list[float]]:
+        """Split Vectors based on M subspaces
+
+        Parameters:
+            vec (list[float]): Input vector to split
+
+        Returns:
+            list[list[float]]: List of M subvectors"""
         subvectors = []
         for m in range(self.M):
             # Extract subvector for subspace m
@@ -86,13 +77,17 @@ class ProductQuantizer:
             subvectors.append(subvec)
         return subvectors
 
-    # K-means++ provides better initialization than random selection by choosing
-    #   centroids that are far apart from each other.
-    #   https://en.wikipedia.org/wiki/K-means%2B%2B
-    # data : Training data points.
-    # K : Number of centroids to initialize.
-    # return : K initial centroids
     def _KMeansPlusPlus(self, data: list[list[float]], K: int) -> list[list[float]]:
+        """K-means++ provides better initialization than random selection by choosing
+        centroids that are far apart from each other.
+        https://en.wikipedia.org/wiki/K-means%2B%2B
+
+        Parameters:
+            data (list[list[float]]): Training data points.
+            K (int): Number of centroids to initialize.
+
+        Returns:
+            list[list[float]]: K initial centroids"""
         if len(data) < K:
             raise ValueError(f"Need at least K={K} data points, got {len(data)}")
 
@@ -142,13 +137,17 @@ class ProductQuantizer:
 
         return centroids
 
-    # Run K-means clustering algorithm.
-    #   https://en.wikipedia.org/wiki/K-means_clustering
-    # data : Training data points (subvectors).
-    # K : Number of clusters (centroids).
-    # max_iter : Optional (default: 100), maximum number of iterations.
-    # return: K centroids after convergence
     def _KMeans(self, data: list[list[float]], K: int, max_iter: int = 100) -> list[list[float]]:
+        """Run K-means clustering algorithm.
+        https://en.wikipedia.org/wiki/K-means_clustering
+
+        Parameters:
+            data (list[list[float]]): Training data points (subvectors).
+            K (int): Number of clusters (centroids).
+            max_iter (int): Optional (default: 100), maximum number of iterations.
+
+        Returns:
+            list[list[float]]: K centroids after convergence"""
         if len(data) == 0:
             return []
 
@@ -218,11 +217,12 @@ class ProductQuantizer:
         centroids = self._KMeans(subvectors, self.K)
         return centroids
 
-    # Train the product quantizer by learning codebooks from data.
-    #   Training time: O(iterations * M * K * N * D'), where N is number of samples.
-    #   Typically use 10K-100K samples for training.
-    # data_sample: Training vectors, each of dimension D.
     def TrainPQ(self, data_sample: list[list[float]]) -> None:
+        """Train the product quantizer by learning codebooks from data.
+        Training time: O(iterations * M * K * N * D'), where N is number of samples.
+
+        Parameters:
+            data_sample (list[list[float]]): Training vectors, each of dimension D."""
         if len(data_sample) == 0:
             raise ValueError("Training data cannot be empty")
 
@@ -239,11 +239,15 @@ class ProductQuantizer:
 
         self.trained = True
 
-    # Encode a vector as M indices (one per subspace).
-    # Each index represents the nearest centroid in that subspace's codebook.
-    # vec: Vector to encode, of dimension D.
-    # returns: M indices, each in range [0, K-1].
     def Encode(self, vec: list[float]) -> list[int]:
+        """Encode a vector as M indices (one per subspace).
+        Each index represents the nearest centroid in that subspace's codebook.
+
+        Parameters:
+            vec (list[float]): Vector to encode, of dimension D.
+
+        Returns:
+            list[int]: M indices, each in range [0, K-1]."""
         if not self.trained:
             raise ValueError("Product quantizer must be trained before encoding")
 
@@ -269,11 +273,15 @@ class ProductQuantizer:
 
         return code
 
-    # Decode indices back to approximate original vector.
-    # Reconstructs the vector by concatenating the centroids specified by each index.
-    # code: M indices, each in range [0, K-1].
-    # returns: Reconstructed D-dimensional vector.
     def Decode(self, code: list[int]) -> list[float]:
+        """Decode indices back to approximate original vector.
+        Reconstructs the vector by concatenating the centroids specified by each index.
+
+        Parameters:
+            code (list[int]): M indices, each in range [0, K-1].
+
+        Returns:
+            list[float]: Reconstructed D-dimensional vector."""
         if not self.trained:
             raise ValueError("Product quantizer must be trained before decoding")
 
@@ -286,11 +294,15 @@ class ProductQuantizer:
 
         return reconstructed
 
-    # Compute approximate distance from query to encoded vector.
-    # query: Query vector of dimension D.
-    # code: Encoded vector (M indices) from codebook.
-    # returns: Approximate squared L2 distance.
     def ComputeAsymmetricDistance(self, query: list[float], code: list[int]) -> float:
+        """Compute approximate distance from query to encoded vector.
+
+        Parameters:
+            query (list[float]): Query vector of dimension D.
+            code (list[int]): Encoded vector (M indices) from codebook.
+
+        Returns:
+            float: Approximate squared L2 distance."""
         if not self.trained:
             raise ValueError("Product quantizer must be trained before computing distances")
 
@@ -311,12 +323,16 @@ class ProductQuantizer:
 
         return total_distance
 
-    # Compute symmetric distance between two encoded vectors.
-    # This is centroid-to-centroid distance
-    # code_v: First encoded vector (M indices).
-    # code_w: Second encoded vector (M indices).
-    # returns: Approximate squared L2 distance.
     def ComputeSymmetricDistance(self, code_v: list[int], code_w: list[int]) -> float:
+        """Compute symmetric distance between two encoded vectors.
+        This is centroid-to-centroid distance
+
+        Parameters:
+            code_v (list[int]): First encoded vector (M indices).
+            code_w (list[int]): Second encoded vector (M indices).
+
+        Returns:
+            float: Approximate squared L2 distance."""
         if not self.trained:
             raise ValueError("Product quantizer must be trained before computing distances")
 
@@ -332,9 +348,11 @@ class ProductQuantizer:
 
         return total_distance
 
-    # Set codebooks directly (e.g., from a saved model).
-    # codebooks: Codebooks to use, shape (M, K, D').
     def SetCodebooks(self, codebooks: list[list[list[float]]]) -> None:
+        """Set codebooks directly (e.g., from a saved model).
+
+        Parameters:
+            codebooks (list[list[list[float]]]): Codebooks to use, shape (M, K, D')."""
         if len(codebooks) != self.M:
             raise ValueError(f"Expected {self.M} codebooks, got {len(codebooks)}")
 
@@ -352,9 +370,11 @@ class ProductQuantizer:
         self.codebooks = codebooks
         self.trained = True
 
-    # Get the trained codebooks.
-    # returns: Codebooks, shape (M, K, D').
     def GetCodebooks(self) -> list[list[list[float]]]:
+        """Get the trained codebooks.
+
+        Returns:
+            list[list[list[float]]]: Codebooks, shape (M, K, D')."""
         if not self.trained:
             raise ValueError("Product quantizer must be trained before accessing codebooks")
 
